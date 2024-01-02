@@ -13,6 +13,7 @@ import az.crocusoft.ecommerce.model.product.*;
 import az.crocusoft.ecommerce.repository.*;
 import az.crocusoft.ecommerce.service.ProductService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -26,6 +27,7 @@ import java.util.*;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ProductServiceImpl implements ProductService {
 
     private final CategoryRepository categoryRepository;
@@ -96,7 +98,6 @@ public class ProductServiceImpl implements ProductService {
                 .discount(productVariationRequest.getDiscount())
                 .stockQuantity(productVariationRequest.getStockQuantity())
                 .build();
-        System.out.println(productVariationRequest.getPrice());
         Set<Image> productVarImages = new HashSet<>();
 
         for (MultipartFile image : images) {
@@ -109,7 +110,9 @@ public class ProductServiceImpl implements ProductService {
     }
 
 
-    public ProductPageResponse getAllPublishedProducts(int pageNumber, int pageSize,
+    public ProductPageResponse getAllPublishedProducts(String keyword, Long designationId,
+                                                       Long categoryId,
+                                                       int pageNumber, int pageSize,
                                                        String sortBy, String sortOrder) {
 
         List<String> sortFields = Arrays.asList(PaginationConstants.fields);
@@ -118,72 +121,19 @@ public class ProductServiceImpl implements ProductService {
         }
         List<String> orders = Arrays.asList(PaginationConstants.orders);
         if (!orders.contains(sortOrder.toUpperCase())) {
-            sortOrder = PaginationConstants.SORT_BY;
+            sortOrder = PaginationConstants.SORT_DIRECTION;
         }
-
-        Page<Product> allProducts;
-        Sort sort = Sort.by(Sort.Direction.fromString(sortOrder), sortBy);
-        Pageable pageable = PageRequest.of(pageNumber, pageSize, sort);
-        if ("price".equalsIgnoreCase(sortBy)) {
-            switch (sortOrder.toUpperCase()) {
-                case "DESC":
-                    allProducts = productRepository
-                            .findProductsWithMinPriceDescOrder(PageRequest.of(pageNumber, pageSize));
-                    break;
-                default:
-                    allProducts = productRepository
-                            .findProductsWithMinPriceAscOrder(PageRequest.of(pageNumber, pageSize));
-            }
-        } else {
-            allProducts = productRepository.findAllByPublishedIsTrue(pageable);
-        }
-
-        return new ProductPageResponse(allProducts.getContent()
-                .stream()
-                .map(this::convertToProductResponse)
-                .toList(),
-                allProducts.getTotalPages(),
-                allProducts.getTotalElements(),
-                allProducts.hasNext());
-    }
-
-    public ProductPageResponse getAllProductsByFurnitureDesignationId(Long designationId,
-                                                                      int pageNumber,
-                                                                      int pageSize) {
-
-        String sortBy = "name";
-        String sortOrder = PaginationConstants.SORT_DIRECTION;
+        pageNumber = Math.max(pageNumber, Integer.parseInt(PaginationConstants.PAGE_NUMBER));
+        pageSize = pageSize < 1 ? Integer.parseInt(PaginationConstants.PAGE_SIZE) : pageSize;
+        pageSize = Math.min(pageSize, 50);
 
         Sort sort = Sort.by(Sort.Direction.fromString(sortOrder), sortBy);
-        Pageable pageable = PageRequest.of(pageNumber, pageSize, sort);
+        Pageable pageable = PageRequest.of(pageNumber - 1, pageSize, sort);
+
         Page<Product> allProducts = productRepository
-                .findProductsByFurnitureDesignations_IdAndPublishedIsTrue(designationId, pageable);
-
-        return new ProductPageResponse(allProducts.getContent()
-                .stream()
-                .map(this::convertToProductResponse)
-                .toList(),
-                allProducts.getTotalPages(),
-                allProducts.getTotalElements(),
-                allProducts.hasNext());
-    }
-
-    public ProductPageResponse searchProductByKeyword(String keyword, Integer pageNumber,
-                                               Integer pageSize, String sortBy,
-                                               String sortOrder) {
-        List<String> sortFields = Arrays.asList(new String[]{"name", "title"});
-        if (!sortFields.contains(sortBy.toLowerCase())) {
-            sortBy = PaginationConstants.SORT_BY;
-        }
-        List<String> orders = Arrays.asList(PaginationConstants.orders);
-        if (!orders.contains(sortOrder.toUpperCase())) {
-            sortOrder = PaginationConstants.SORT_BY;
-        }
-
-        Sort sort = Sort.by(Sort.Direction.fromString(sortOrder), sortBy);
-        Pageable pageable = PageRequest.of(pageNumber, pageSize, sort);
-        Page<Product> allProducts = productRepository
-                .findByNameContaining(keyword, pageable);
+                .findProductsWithMinPriceAndKeywordAndDesignationAndCategory(
+                keyword, designationId, categoryId, pageable
+                );
 
         return new ProductPageResponse(allProducts.getContent()
                 .stream()
@@ -281,7 +231,7 @@ public class ProductServiceImpl implements ProductService {
                 .anyMatch(variation -> variation.getDiscount() != null && variation.getDiscount() > 0);
     }
 
-    private Double getProductVariationSpecialPrice(ProductVariation variation) {
+    public Double getProductVariationSpecialPrice(ProductVariation variation) {
         Double discount = variation.getDiscount();
         Double price = variation.getPrice();
         if (discount == null || discount == 0)
@@ -312,7 +262,8 @@ public class ProductServiceImpl implements ProductService {
 
     private ProductVariationDTO toProductVariationDTO(ProductVariation variation) {
         ProductVariationDTO productVariationDTO = new ProductVariationDTO();
-        productVariationDTO.setId(variation.getId());
+        productVariationDTO.setVariationId(variation.getProductVariationiId());
+        productVariationDTO.setSku(variation.getSku());
         productVariationDTO.setPrice(variation.getPrice());
         productVariationDTO.setDiscount(variation.getDiscount());
         productVariationDTO.setQuantity(variation.getStockQuantity());
